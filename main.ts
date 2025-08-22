@@ -7,6 +7,9 @@ import {
 	Plugin,
 	PluginSettingTab,
 	Setting,
+	TFolder,
+	AbstractInputSuggest,
+	SearchComponent,
 } from "obsidian";
 
 // Remember to rename these classes and interfaces!
@@ -15,12 +18,16 @@ interface IMultiVaultConfig {
 	mySetting: string;
 }
 
-const DEFAULT_SETTINGS: IMultiVaultConfig = {
-	mySetting: "default",
-};
+interface IAreaConfigItem {
+	areaPath: string;
+	imagePath: string;
+	notePath: string;
+}
+
+const DEFAULT_SETTINGS: IAreaConfigItem[] = [];
 
 export default class MultiVaultConfig extends Plugin {
-	settings: IMultiVaultConfig;
+	settings: IAreaConfigItem[] = [];
 
 	async onload() {
 		await this.loadSettings();
@@ -97,11 +104,12 @@ export default class MultiVaultConfig extends Plugin {
 	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		const data = await this.loadData();
+		console.log("🚀 ~ MultiVaultConfig ~ loadSettings ~ data:", data);
+		this.settings = [
+			...(Array.isArray(data) ? data : []),
+			...DEFAULT_SETTINGS,
+		];
 	}
 
 	async saveSettings() {
@@ -138,7 +146,21 @@ class MultiVaultConfigSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		let vaultNum = 1;
+		if (this.plugin.settings.length === 0) {
+			this.displayBlankPage();
+		} else {
+			this.displayConfigPage();
+		}
+	}
+
+	private displayConfigPage() {
+		const { containerEl } = this;
+
+		containerEl.empty();
+	}
+
+	private displayBlankPage() {
+		const { containerEl } = this;
 
 		new Setting(containerEl)
 			.setName("Multi Vault Config")
@@ -146,60 +168,131 @@ class MultiVaultConfigSettingTab extends PluginSettingTab {
 			// .setDesc("It's a secret")
 			.addButton((button) =>
 				button.setButtonText("Add Vault").onClick(() => {
-					// Vault 1 配置
+					// 先添加新的配置项到设置数组
+					this.plugin.settings.push({
+						areaPath: "",
+						imagePath: "",
+						notePath: "",
+					});
+
+					// 获取当前配置项的索引（数组长度-1）
+					const currentIndex = this.plugin.settings.length - 1;
+					const currentVaultNum = currentIndex + 1;
+
+					console.log(
+						"🚀 ~ MultiVaultConfigSettingTab ~ display ~ currentIndex:",
+						currentIndex
+					);
+					console.log(
+						"🚀 ~ MultiVaultConfigSettingTab ~ display ~ this.plugin.settings:",
+						this.plugin.settings
+					);
+
+					// Vault 配置标题
 					new Setting(containerEl)
-						.setName(`Vault ${vaultNum}`)
+						.setName(`Vault ${currentVaultNum}`)
 						.setHeading();
 
+					// Vault 路径配置
 					new Setting(containerEl)
-						.setName(`Vault ${vaultNum}`)
-						.addText((text) =>
-							text
-								.setPlaceholder("输入 vault 路径")
-								.setValue("")
+						.setName(`Vault ${currentVaultNum} 路径`)
+						.addText((text) => {
+							text.setPlaceholder("输入 vault 路径")
+								.setValue(
+									this.plugin.settings[currentIndex].areaPath
+								)
 								.onChange(async (value) => {
-									this.plugin.settings.mySetting = value;
+									this.plugin.settings[
+										currentIndex
+									].areaPath = value;
 									await this.plugin.saveSettings();
-								})
-						);
+								});
+
+							new InputSearchSuggest(this.app, text.inputEl);
+						});
 
 					// 新笔记地址配置
 					new Setting(containerEl)
 						.setName("新笔记地址")
-						.addText((text) =>
-							text
-								.setPlaceholder("输入新笔记保存路径")
-								.setValue("")
+						.addText((text) => {
+							text.setPlaceholder("输入新笔记保存路径")
+								.setValue(
+									this.plugin.settings[currentIndex].notePath
+								)
 								.onChange(async (value) => {
-									this.plugin.settings.mySetting = value;
+									console.log(
+										"🚀 ~ notePath onChange ~ value:",
+										value
+									);
+									this.plugin.settings[
+										currentIndex
+									].notePath = value;
 									await this.plugin.saveSettings();
-								})
-						);
+								});
+
+							new InputSearchSuggest(this.app, text.inputEl);
+						});
 
 					// 图片地址配置
 					new Setting(containerEl)
 						.setName("图片地址")
-						.addText((text) =>
-							text
-								.setPlaceholder("输入图片保存路径")
-								.setValue("")
+						.addText((text) => {
+							text.setPlaceholder("输入图片保存路径")
+								.setValue(
+									this.plugin.settings[currentIndex].imagePath
+								)
 								.onChange(async (value) => {
-									this.plugin.settings.mySetting = value;
+									console.log(
+										"🚀 ~ imagePath onChange ~ value:",
+										value
+									);
+									this.plugin.settings[
+										currentIndex
+									].imagePath = value;
 									await this.plugin.saveSettings();
-								})
-						);
+								});
 
-					vaultNum++;
+							new InputSearchSuggest(this.app, text.inputEl);
+						});
 				})
 			);
-		// .addText((text) =>
-		// 	text
-		// 		.setPlaceholder("Enter your secret")
-		// 		.setValue(this.plugin.settings.mySetting)
-		// 		.onChange(async (value) => {
-		// 			this.plugin.settings.mySetting = value;
-		// 			await this.plugin.saveSettings();
-		// 		})
-		// );
+	}
+}
+
+class InputSearchSuggest extends AbstractInputSuggest<any> {
+	constructor(app: App, textInputEl: HTMLInputElement) {
+		super(app, textInputEl);
+	}
+
+	// 获取文件夹建议的辅助函数
+	private getFolderSuggestions(): string[] {
+		const allFiles = this.app.vault.getAllLoadedFiles();
+		const folders = allFiles
+			.filter((file) => file instanceof TFolder)
+			.map((folder: TFolder) => folder.path)
+			.sort();
+
+		// 添加根目录选项
+		return ["/", ...folders];
+	}
+
+	getSuggestions(query: string): string[] {
+		const folders = this.getFolderSuggestions();
+
+		const suggestions = folders.filter((path: string) =>
+			path.toLowerCase().includes(query)
+		);
+
+		return suggestions;
+	}
+
+	renderSuggestion(item: string, el: HTMLElement) {
+		el.setText(item);
+	}
+
+	selectSuggestion(value: any, evt: MouseEvent | KeyboardEvent): void {
+		this.setValue(value);
+		// 选择成功后关闭建议列表
+		this.close();
 	}
 }
